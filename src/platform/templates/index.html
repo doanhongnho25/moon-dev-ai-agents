@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Moon Dev Control Center</title>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0b1220;
+            color: #e6edf3;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            padding: 24px;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        main {
+            padding: 24px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
+        }
+        .card h2 {
+            margin: 0;
+            font-size: 1.1rem;
+        }
+        .card p {
+            margin: 0;
+            opacity: 0.85;
+            min-height: 60px;
+        }
+        .card input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            background: rgba(15, 23, 42, 0.6);
+            color: #e6edf3;
+        }
+        .card button {
+            border: none;
+            border-radius: 9999px;
+            padding: 12px 18px;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #0f172a;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(14, 165, 233, 0.35);
+        }
+        .jobs {
+            margin-top: 40px;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            color: inherit;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            text-align: left;
+        }
+        .status {
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .status.running {
+            background: rgba(34, 211, 238, 0.15);
+            color: #22d3ee;
+        }
+        .status.completed {
+            background: rgba(52, 211, 153, 0.15);
+            color: #34d399;
+        }
+        .status.failed {
+            background: rgba(248, 113, 113, 0.15);
+            color: #f87171;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🌙 Moon Dev Control Center</h1>
+        <p>Launch and monitor agents from a unified interface.</p>
+    </header>
+    <main>
+        <section>
+            <h2>Available Agents</h2>
+            <div class="agent-grid" id="agent-grid">
+                {% for agent in agents %}
+                <div class="card" data-agent="{{ agent.name }}">
+                    <div>
+                        <h2>{{ agent.name | capitalize }}</h2>
+                        <p>{{ agent.description }}</p>
+                    </div>
+                    {% if agent.supports_tokens %}
+                    <label>
+                        <span style="font-size: 0.85rem; opacity: 0.8;">Token list (comma separated)</span>
+                        <input type="text" placeholder="e.g. SOL, BTC" />
+                    </label>
+                    {% endif %}
+                    <button type="button">Run {{ agent.name | capitalize }}</button>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="jobs">
+            <h2>Job Activity</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Job ID</th>
+                        <th>Agent</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                    </tr>
+                </thead>
+                <tbody id="jobs-table">
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        async function refreshJobs() {
+            const response = await fetch('/jobs');
+            const jobs = await response.json();
+            const tbody = document.getElementById('jobs-table');
+            tbody.innerHTML = '';
+
+            jobs.forEach(job => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="font-family: monospace; font-size: 0.85rem;">${job.job_id.slice(0, 8)}…</td>
+                    <td>${job.agent}</td>
+                    <td><span class="status ${job.status}">${job.status}</span></td>
+                    <td>${new Date(job.submitted_at).toLocaleString()}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        async function runAgent(agentCard) {
+            const agentName = agentCard.dataset.agent;
+            const input = agentCard.querySelector('input');
+            const payload = input && input.value ? input.value.split(',').map(token => token.trim()).filter(Boolean) : undefined;
+
+            const response = await fetch(`/agents/${agentName}/run`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tokens: payload })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                alert(error.detail || 'Failed to start agent.');
+                return;
+            }
+
+            await refreshJobs();
+        }
+
+        document.querySelectorAll('.card button').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                const card = event.target.closest('.card');
+                button.disabled = true;
+                button.textContent = 'Launching…';
+                await runAgent(card);
+                button.disabled = false;
+                button.textContent = `Run ${card.dataset.agent.charAt(0).toUpperCase() + card.dataset.agent.slice(1)}`;
+            });
+        });
+
+        refreshJobs();
+        setInterval(refreshJobs, 5000);
+    </script>
+</body>
+</html>
